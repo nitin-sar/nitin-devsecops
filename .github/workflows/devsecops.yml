@@ -29,8 +29,21 @@ jobs:
 
       - name: Verify Application
         run: npm test
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Build Docker Image
+        run: docker build -t sample-node-app:latest .
+
+      - name: Trivy Security Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'sample-node-app:latest'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
