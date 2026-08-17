@@ -5,3 +5,6 @@ Dockerfile
 .git
 .gitignore
 docker-compose.yml
+token.txt
+sonar-backup.mv.db
+.env
