@@ -56,3 +56,5 @@ build/Release
 node_modules/
 token.txt
 
+trivy-output.txt
+trivy-result.json

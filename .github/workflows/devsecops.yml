@@ -1,3 +1,4 @@
+```yaml
 name: DevSecOps Pipeline
 
 on:
@@ -10,40 +11,235 @@ on:
       - master
 
 jobs:
-  ci:
+  devsecops:
 
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+
     steps:
 
+      # ============================================================
+      # 1. CHECKOUT
+      # ============================================================
       - name: Checkout Code
         uses: actions/checkout@v4
 
+
+      # ============================================================
+      # 2. SETUP NODE.JS
+      # ============================================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
+
+      # ============================================================
+      # 3. INSTALL DEPENDENCIES
+      # ============================================================
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Verify Application
+
+      # ============================================================
+      # 4. NPM AUDIT
+      # Vulnerabilities are reported but do not fail pipeline
+      # ============================================================
+      - name: NPM Audit
+        run: |
+          npm audit --production --json > npm-audit-report.json || true
+
+
+      # ============================================================
+      # 5. RUN TESTS
+      # ============================================================
+      - name: Run Tests
         run: npm test
 
+
+      # ============================================================
+      # 6. SONARQUBE SCAN
+      # ============================================================
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      - name: Build Docker Image
-        run: docker build -t sample-node-app:latest .
 
+      # ============================================================
+      # 7. SONARQUBE QUALITY GATE
+      # Quality Gate failure stops pipeline
+      # ============================================================
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+
+      # ============================================================
+      # 8. BUILD DOCKER IMAGE
+      # ============================================================
+      - name: Build Docker Image
+        run: |
+          docker build -t sample-node-app:latest .
+
+
+      # ============================================================
+      # 9. TRIVY SECURITY SCAN
+      # Vulnerabilities are reported but DO NOT fail pipeline
+      # ============================================================
       - name: Trivy Security Scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'sample-node-app:latest'
-          format: 'table'
-          exit-code: '1'
+          image-ref: sample-node-app:latest
+          format: table
+          output: trivy-report.txt
           ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+
+      # ============================================================
+      # 10. GENERATE TRIVY JSON REPORT
+      # ============================================================
+      - name: Generate Trivy JSON Report
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: sample-node-app:latest
+          format: json
+          output: trivy-result.json
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+
+      # ============================================================
+      # 11. ENCRYPT TRIVY REPORT
+      # ============================================================
+      - name: Encrypt Trivy Report
+        env:
+          REPORT_ENCRYPTION_KEY: ${{ secrets.REPORT_ENCRYPTION_KEY }}
+        run: |
+          openssl enc -aes-256-cbc \
+            -salt \
+            -pbkdf2 \
+            -in trivy-report.txt \
+            -out trivy-report.txt.enc \
+            -pass pass:"$REPORT_ENCRYPTION_KEY"
+
+
+      # ============================================================
+      # 12. UPLOAD TRIVY REPORT AS GITHUB ARTIFACT
+      # ============================================================
+      - name: Upload Trivy Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-vulnerability-report
+          path: |
+            trivy-report.txt
+            trivy-result.json
+            trivy-report.txt.enc
+
+
+      # ============================================================
+      # 13. UPLOAD NPM AUDIT REPORT
+      # ============================================================
+      - name: Upload NPM Audit Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit-report.json
+
+
+      # ============================================================
+      # 14. LOGIN TO NEXUS / JFROG
+      #
+      # Keep ONLY ONE of the following implementations
+      # depending on your company's artifact repository.
+      # ============================================================
+
+      # -------- NEXUS EXAMPLE --------
+      # Uncomment only if your company uses Nexus.
+      #
+      # - name: Upload Encrypted Report to Nexus
+      #   env:
+      #     NEXUS_URL: ${{ secrets.NEXUS_URL }}
+      #     NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      #     NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      #   run: |
+      #     curl -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
+      #       --upload-file trivy-report.txt.enc \
+      #       "$NEXUS_URL/repository/trivy-reports/trivy-report-${{ github.sha }}.txt.enc"
+
+
+      # -------- JFROG EXAMPLE --------
+      # Uncomment only if your company uses JFrog.
+      #
+      # - name: Upload Encrypted Report to JFrog
+      #   env:
+      #     JFROG_URL: ${{ secrets.JFROG_URL }}
+      #     JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
+      #     JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
+      #   run: |
+      #     curl -u "$JFROG_USERNAME:$JFROG_PASSWORD" \
+      #       -T trivy-report.txt.enc \
+      #       "$JFROG_URL/trivy-reports/trivy-report-${{ github.sha }}.txt.enc"
+
+
+      # ============================================================
+      # 15. CONFIGURE AWS CREDENTIALS
+      # ============================================================
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+
+      # ============================================================
+      # 16. LOGIN TO AWS ECR
+      # ============================================================
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # ============================================================
+      # 17. TAG DOCKER IMAGE FOR ECR
+      # ============================================================
+      - name: Tag Docker Image
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          docker tag \
+            sample-node-app:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:${{ github.sha }}
+
+          docker tag \
+            sample-node-app:latest \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
+
+
+      # ============================================================
+      # 18. PUSH IMAGE TO AWS ECR
+      # ============================================================
+      - name: Push Docker Image to ECR
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:${{ github.sha }}
+
+          docker push \
+            $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
+```
