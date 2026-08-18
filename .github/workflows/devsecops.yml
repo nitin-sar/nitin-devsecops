@@ -1,3 +1,4 @@
+
 name: DevSecOps Pipeline
 
 on:
@@ -45,6 +46,7 @@ jobs:
 
       # ============================================================
       # 4. NPM AUDIT
+      # Vulnerabilities are reported but do not fail pipeline
       # ============================================================
       - name: NPM Audit
         run: |
@@ -88,6 +90,7 @@ jobs:
 
       # ============================================================
       # 9. TRIVY SECURITY SCAN
+      # Vulnerabilities are reported but do not fail pipeline
       # ============================================================
       - name: Trivy Security Scan
         uses: aquasecurity/trivy-action@master
@@ -153,7 +156,12 @@ jobs:
 
 
       # ============================================================
-      # 14. UPLOAD ENCRYPTED REPORT TO NEXUS
+      # 14. UPLOAD ENCRYPTED TRIVY REPORT TO NEXUS
+      #
+      # NEXUS_URL secret should contain ONLY:
+      # https://authentication-deck-copies-duo.trycloudflare.com
+      #
+      # Repository path is added below.
       # ============================================================
       - name: Upload Encrypted Report to Nexus
         env:
@@ -180,7 +188,7 @@ jobs:
 
 
       # ============================================================
-      # 16. LOGIN TO AMAZON ECR
+      # 16. LOGIN TO AWS ECR
       # ============================================================
       - name: Login to Amazon ECR
         id: login-ecr
