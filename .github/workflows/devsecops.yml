@@ -20,7 +20,7 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. CHECKOUT
+      # 1. CHECKOUT CODE
       # ============================================================
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -45,7 +45,6 @@ jobs:
 
       # ============================================================
       # 4. NPM AUDIT
-      # Vulnerabilities are reported but do not fail pipeline
       # ============================================================
       - name: NPM Audit
         run: |
@@ -71,7 +70,6 @@ jobs:
 
       # ============================================================
       # 7. SONARQUBE QUALITY GATE
-      # Quality Gate failure stops pipeline
       # ============================================================
       - name: SonarQube Quality Gate
         uses: SonarSource/sonarqube-quality-gate-action@v1
@@ -89,8 +87,7 @@ jobs:
 
 
       # ============================================================
-      # 9. TRIVY SECURITY SCAN
-      # Vulnerabilities are reported but DO NOT fail pipeline
+      # 9. TRIVY SECURITY SCAN - TABLE REPORT
       # ============================================================
       - name: Trivy Security Scan
         uses: aquasecurity/trivy-action@master
@@ -133,7 +130,7 @@ jobs:
 
 
       # ============================================================
-      # 12. UPLOAD TRIVY REPORT AS GITHUB ARTIFACT
+      # 12. UPLOAD TRIVY REPORT TO GITHUB ARTIFACT
       # ============================================================
       - name: Upload Trivy Report
         uses: actions/upload-artifact@v4
@@ -146,7 +143,7 @@ jobs:
 
 
       # ============================================================
-      # 13. UPLOAD NPM AUDIT REPORT
+      # 13. UPLOAD NPM AUDIT REPORT TO GITHUB ARTIFACT
       # ============================================================
       - name: Upload NPM Audit Report
         uses: actions/upload-artifact@v4
@@ -156,38 +153,18 @@ jobs:
 
 
       # ============================================================
-      # 14. LOGIN TO NEXUS / JFROG
-      #
-      # Keep ONLY ONE of the following implementations
-      # depending on your company's artifact repository.
+      # 14. UPLOAD ENCRYPTED TRIVY REPORT TO NEXUS
       # ============================================================
-
-      # -------- NEXUS EXAMPLE --------
-      # Uncomment only if your company uses Nexus.
-      #
-      # - name: Upload Encrypted Report to Nexus
-      #   env:
-      #     NEXUS_URL: ${{ secrets.NEXUS_URL }}
-      #     NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
-      #     NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
-      #   run: |
-      #     curl -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
-      #       --upload-file trivy-report.txt.enc \
-      #       "$NEXUS_URL/repository/trivy-reports/trivy-report-${{ github.sha }}.txt.enc"
-
-
-      # -------- JFROG EXAMPLE --------
-      # Uncomment only if your company uses JFrog.
-      #
-      # - name: Upload Encrypted Report to JFrog
-      #   env:
-      #     JFROG_URL: ${{ secrets.JFROG_URL }}
-      #     JFROG_USERNAME: ${{ secrets.JFROG_USERNAME }}
-      #     JFROG_PASSWORD: ${{ secrets.JFROG_PASSWORD }}
-      #   run: |
-      #     curl -u "$JFROG_USERNAME:$JFROG_PASSWORD" \
-      #       -T trivy-report.txt.enc \
-      #       "$JFROG_URL/trivy-reports/trivy-report-${{ github.sha }}.txt.enc"
+      - name: Upload Encrypted Report to Nexus
+        env:
+          NEXUS_URL: ${{ secrets.NEXUS_URL }}
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          curl --fail-with-body \
+            -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" \
+            --upload-file trivy-report.txt.enc \
+            "$NEXUS_URL/repository/trivy-reports/trivy-report-${{ github.sha }}.txt.enc"
 
 
       # ============================================================
@@ -202,7 +179,7 @@ jobs:
 
 
       # ============================================================
-      # 16. LOGIN TO AWS ECR
+      # 16. LOGIN TO AMAZON ECR
       # ============================================================
       - name: Login to Amazon ECR
         id: login-ecr
@@ -228,7 +205,7 @@ jobs:
 
 
       # ============================================================
-      # 18. PUSH IMAGE TO AWS ECR
+      # 18. PUSH DOCKER IMAGE TO AWS ECR
       # ============================================================
       - name: Push Docker Image to ECR
         env:
